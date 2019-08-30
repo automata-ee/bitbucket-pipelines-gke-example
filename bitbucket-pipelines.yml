@@ -1,0 +1,61 @@
+options:
+  docker: true
+pipelines:
+  branches:
+    dev:
+    - step: 
+        caches:
+          - docker
+          - maven
+        name: build-image-dev
+        image: atlassian/default-image:2
+        script:
+          - export IMAGE_NAME=gcr.io/$GCLOUD_DEV_PROJECT/$BITBUCKET_REPO_FULL_NAME:$BITBUCKET_COMMIT
+          - docker build -t $IMAGE_NAME .
+          - docker save --output tmp-image.docker $IMAGE_NAME
+        artifacts:
+          - tmp-image.docker
+    - step: 
+        name: push-gcp-dev
+        image: google/cloud-sdk:alpine
+        script:
+          - docker load --input ./tmp-image.docker
+          - echo $GCLOUD_DEV_API_KEYFILE | base64 -d > ./gcloud-api-key.json
+          - gcloud auth activate-service-account --key-file gcloud-api-key.json
+          - gcloud config set project $GCLOUD_DEV_PROJECT
+          - gcloud config set compute/zone $GCLOUD_DEV_ZONE
+          - gcloud components install kubectl
+          - gcloud container clusters get-credentials development
+          - export IMAGE_NAME=gcr.io/$GCLOUD_DEV_PROJECT/$BITBUCKET_REPO_FULL_NAME:$BITBUCKET_COMMIT
+          - cat ./gcloud-api-key.json | docker login -u _json_key --password-stdin https://gcr.io
+          - docker push ${IMAGE_NAME}
+          - kubectl -n $GCLOUDNAMESPACE set image deployment/api api=$IMAGE_NAME
+ 
+    master:
+    - step: 
+        caches:
+          - docker
+          - maven
+        name: build-image-prd
+        image: atlassian/default-image:2
+        script:
+          - export IMAGE_NAME=gcr.io/$GCLOUD_PRD_PROJECT/$BITBUCKET_REPO_FULL_NAME:$BITBUCKET_COMMIT
+          - docker build -t $IMAGE_NAME .
+          - docker save --output tmp-image.docker $IMAGE_NAME
+        artifacts:
+          - tmp-image.docker
+    - step: 
+        name: push-gcp-prd
+        image: google/cloud-sdk:alpine
+        script:
+          - docker load --input ./tmp-image.docker
+          - echo $GCLOUD_PRD_API_KEYFILE | base64 -d > ./gcloud-api-key.json
+          - gcloud auth activate-service-account --key-file gcloud-api-key.json
+          - gcloud config set project $GCLOUD_PRD_PROJECT
+          - gcloud config set compute/zone $GCLOUD_PRD_ZONE
+          - gcloud components install kubectl
+          - gcloud container clusters get-credentials production
+          - export IMAGE_NAME=gcr.io/$GCLOUD_PRD_PROJECT/$BITBUCKET_REPO_FULL_NAME:$BITBUCKET_COMMIT
+          - cat ./gcloud-api-key.json | docker login -u _json_key --password-stdin https://gcr.io
+          - docker push ${IMAGE_NAME}
+          - kubectl -n $GCLOUDNAMESPACE set image deployment/api api=$IMAGE_NAME
